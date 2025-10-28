@@ -1,0 +1,178 @@
+---
+title: "United Airlines Departure Delays Analysis"
+output: html_document
+
+---
+# Introduction
+
+```{r}
+# Require package
+library(nycflights13)
+library(ggplot2)
+library(dplyr)
+
+```
+# 1, Time of the day
+
+```{r}
+# Filter United Airlines flights and remove missing values
+
+ua_flights <- flights %>%
+  filter(carrier == "UA") %>%
+  filter(!is.na(dep_delay), !is.na(hour), !is.na(month)) %>%
+  mutate(
+    late = dep_delay > 0,           # any positive delay
+    very_late = dep_delay > 60,     # > 60 minutes
+    hour = as.integer(hour)
+    )
+
+# Time of the day group
+ua_flights <- ua_flights %>%
+  mutate(
+    time_of_day = case_when(
+      hour >= 0  & hour < 6  ~ "Night (0-5)",
+      hour >= 6  & hour < 12 ~ "Morning (6-11)",
+      hour >= 12 & hour < 18 ~ "Afternoon (12-17)",
+      hour >= 18 & hour <= 23 ~ "Evening (18-23)",
+      TRUE ~ "Unknown"
+    )
+  )
+
+```
+
+# Exporatory Data Analysis
+
+```{r}
+
+summary_tod <- ua_flights %>%
+  group_by(time_of_day) %>%
+  summarise(
+    n = n(),
+    mean_delay = mean(dep_delay),
+    med_delay = median(dep_delay),
+    sd_delay = sd(dep_delay),
+    prop_late = mean(late),
+    prop_very_late = mean(very_late)
+  )
+print(summary_tod)
+
+```
+Time of Day — Departure Delays
+
+Morning and Night flights had the lowest average delays (~2–5 minutes) and about 33% departed late. Afternoon flights averaged ~14 minutes delay (53% late), while Evening flights were the worst, averaging ~23 minutes delay with 63% departing late. Overall, delays increase as the day progresses.
+
+
+```{r}
+# Boxplot : delays by time of day
+ggplot(ua_flights, aes(x = time_of_day, y = dep_delay)) +
+  geom_boxplot(outlier.size = 0.6) +
+  coord_cartesian(ylim = c(-20, 200)) + # optional clamp so plot is readable (adjust if needed)
+  labs(title = "United Airlines — Departure delay by time of day",
+       x = "Time of day",
+       y = "Departure delay (minutes)")
+```
+United Airline - Departure delay by time of day
+
+The boxplot shows that most United Airlines flights depart close to their scheduled time, with median delays near 0 minutes across all times of day. Evening flights (18–23) have the largest spread, indicating more variable delays, while Morning (6–11) and Night (0–5) flights are more consistent. Outliers exist in all time periods, showing that very long delays can occur at any time.
+
+```{r}
+# Mean delay + percent late
+mean_plot_df <- summary_tod %>% select(time_of_day, mean_delay, prop_late)
+
+# Mean delay (line)
+ggplot(mean_plot_df, aes(x = time_of_day, y = mean_delay, group = 1)) +
+  geom_line() +
+  labs(title = "Average departure delay by time of day", x = "Time of day", y = "Mean delay (minutes)")
+
+```
+Average Delay and % Late by Time of Day
+
+Evening flights (18–23) have the highest average delay (~23 min) and 63% depart late. Afternoon flights are moderate (~14.4 min, 53% late), while Morning (6–11) and Night (0–5) flights are the most punctual (~4.7 and ~2.2 min, 33% late). Overall, delays increase through the day, peaking in the evening.
+
+
+# Permutation Test
+
+```{r}
+# Compute the observed statistic
+# Observed difference among time-of-day groups
+observed <- ua_flights %>%
+  group_by(time_of_day) %>%
+  summarise(mean_delay = mean(dep_delay)) %>%
+  summarise(var_mean_delay = var(mean_delay)) %>%
+  pull(var_mean_delay)
+
+observed
+
+```
+
+We performed a permutation test to see if the differences in average departure delays across times of day could happen by chance. The observed variance of mean delays was 89.39, which is much higher than expected under random shuffling of flight times. This indicates that the time of day has a significant effect on departure delays.
+
+
+```{r}
+#Perform permutation test
+
+set.seed(123)  # for reproducibility
+
+n_perm <- 1000  # number of permutations
+perm_stats <- numeric(n_perm)
+
+for (i in 1:n_perm) {
+  perm_data <- ua_flights %>%
+    mutate(time_of_day = sample(time_of_day)) %>%  # shuffle labels
+    group_by(time_of_day) %>%
+    summarise(mean_delay = mean(dep_delay)) %>%
+    summarise(var_mean_delay = var(mean_delay)) %>%
+    pull(var_mean_delay)
+  
+  perm_stats[i] <- perm_data
+}
+
+p_value <- mean(perm_stats >= obs_stat) 
+p_value
+
+```
+
+The permutation test shows a statistically significant difference in average departure delays among times of day for United Airlines flights (p < 0.05). This suggests that the time of day has a strong effect on departure delay patterns.
+
+```{r}
+# Visualize permutation distribution
+ggplot(data.frame(perm_stats), aes(x = perm_stats)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+  geom_vline(xintercept = obs_stat, color = "red", size = 1.2) +
+  labs(
+    title = "Permutation Test: Variance of Mean Departure Delays by Time of Day",
+    x = "Variance of mean delay (permuted)",
+    y = "Frequency"
+  ) +
+  annotate("text", x = obs_stat, y = 30, label = paste("Observed =", round(obs_stat, 2)), color = "red", hjust = -0.1)
+
+```
+
+Permutation Test Visualization
+
+The histogram shows the permutation distribution of variance in mean departure delays by time of day. The red line marks the observed variance (≈ 89.39), which is far to the right, indicating it’s much larger than random variation.
+
+
+# Time of the years
+
+```{r}
+# group fight by season
+
+ua_flights <- ua_flights %>%
+  mutate(
+    time_of_year = case_when(
+      month %in% c(12, 1, 2) ~ "Winter",
+      month %in% c(3, 4, 5) ~ "Spring",
+      month %in% c(6, 7, 8) ~ "Summer",
+      month %in% c(9, 10, 11) ~ "Fall"
+    )
+  )
+
+```
+
+```{r}
+aw <- ua_flights %>%
+  filter(time_of_year == "Spring")
+aw
+```
+
