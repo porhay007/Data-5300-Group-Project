@@ -13,6 +13,12 @@ library(dplyr)
 
 ```
 
+#check data
+```{r}
+head(flights)
+```
+
+
 # 1, Time of the day
 
 ```{r}
@@ -69,6 +75,7 @@ summary_tod <- ua_flights %>%
 print(summary_tod)
 
 ```
+
 Time of Day — Departure Delays
 
 Morning and Night flights had the lowest average delays (~2–5 minutes) and about 33% departed late. Afternoon flights averaged ~14 minutes delay (53% late), while Evening flights were the worst, averaging ~23 minutes delay with 63% departing late. Overall, delays increase as the day progresses.
@@ -83,6 +90,7 @@ ggplot(ua_flights, aes(x = time_of_day, y = dep_delay)) +
        x = "Time of day",
        y = "Departure delay (minutes)")
 ```
+
 United Airline - Departure delay by time of day
 
 The boxplot shows that most United Airlines flights depart close to their scheduled time, with median delays near 0 minutes across all times of day. Evening flights (18–23) have the largest spread, indicating more variable delays, while Morning (6–11) and Night (0–5) flights are more consistent. Outliers exist in all time periods, showing that very long delays can occur at any time.
@@ -97,7 +105,6 @@ ggplot(mean_plot_df, aes(x = time_of_day, y = mean_delay, group = 1)) +
   labs(title = "Average departure delay by time of day", x = "Time of day", y = "Mean delay (minutes)")
 
 ```
-
 
 Average Delay and % Late by Time of Day
 
