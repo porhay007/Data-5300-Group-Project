@@ -1,0 +1,134 @@
+---
+title: "Group Project-Precipitation and Visibility"
+output: html_document
+Author: Prithika
+---
+
+
+```{r}
+# Load packages
+library(nycflights13)   # Flights + weather datasets
+library(tidyverse)      # Wrangling + visualization
+library(lubridate)      # Date/time handling
+library(infer)          # Permutation tests
+```
+
+# 1. DATA PREPARATION
+
+```{r}
+# Filter UA flights
+ua <- flights %>%
+  filter(carrier == "UA") %>%
+  mutate(
+    dep_hour = sched_dep_time %/% 100,
+    date = make_date(year, month, day),
+    late = dep_delay > 0,
+    very_late = dep_delay > 30
+  ) %>%
+  filter(!is.na(dep_delay))
+
+# Prepare weather data
+wx <- weather %>%
+  mutate(date = make_date(year, month, day),
+         dep_hour = hour) %>%
+  select(origin, date, dep_hour, temp, wind_speed, precip, visib)
+
+# Merge flights + weather
+ua_wx <- ua %>%
+  inner_join(wx, by = c("origin", "date", "dep_hour"))
+```
+
+# 2. CREATE CATEGORIES
+
+```{r}
+ua_wx <- ua_wx %>%
+  mutate(
+    precip_band = if_else(precip > 0, "Measurable", "None/Trace"),
+    vis_band = if_else(visib <= 3, "Low visibility (≤3 mi)",
+                       "Higher visibility")
+  )
+```
+
+# 3. EDA VISUALIZATIONS
+
+```{r}
+# --- Precipitation ---
+ua_wx %>%
+  group_by(precip_band) %>%
+  summarize(p_vlate = mean(very_late)) %>%
+  ggplot(aes(precip_band, p_vlate, fill=precip_band)) +
+  geom_col() +
+  scale_y_continuous(labels=scales::percent) +
+  labs(title="Very late rates by precipitation",
+       x="Precipitation", y="Share very late")
+```
+
+```{r}
+# --- Visibility ---
+ua_wx %>%
+  group_by(vis_band) %>%
+  summarize(p_vlate = mean(very_late)) %>%
+  ggplot(aes(vis_band, p_vlate, fill=vis_band)) +
+  geom_col() +
+  scale_y_continuous(labels=scales::percent) +
+  labs(title="Very late rates by visibility",
+       x="Visibility", y="Share very late")
+```
+
+# 4. PERMUTATION TESTS
+
+```{r}
+perm_test_two_groups <- function(data, group_var, g1, g2, reps=2000, label="") {
+  df <- data %>%
+    filter({{group_var}} %in% c(g1, g2)) %>%
+    mutate(group = factor({{group_var}}, levels=c(g1, g2)))
+  
+  obs <- df %>%
+    summarize(diff = mean(very_late[group==g1]) -
+                     mean(very_late[group==g2])) %>%
+    pull(diff)
+  
+  null_dist <- df %>%
+    specify(very_late ~ group, success = "TRUE") %>%
+    hypothesize(null="independence") %>%
+    generate(reps=reps, type="permute") %>%
+    calculate(stat="diff in props", order=c(g1, g2))
+  
+  pval <- null_dist %>%
+    get_p_value(obs_stat=obs, direction="two_sided") %>%
+    pull(p_value)
+  
+  # Format p-value to avoid "0"
+  if (pval == 0) {
+    pval_str <- paste0("< ", signif(1/reps, 2))  # e.g. "< 0.0001"
+  } else {
+    pval_str <- signif(pval, 3)
+  }
+  
+  # Print plain-English interpretation
+  cat("\n", "====", label, "====", "\n")
+  cat(sprintf("%s flights were %.1f percentage points more likely to be very late than %s flights (p %s).\n",
+              g1, obs*100, g2, pval_str))
+  if (pval < 0.05) {
+    cat("This difference is unlikely due to chance — suggesting", label, "matters for delays.\n")
+  } else {
+    cat("This difference could be due to random variation — no strong evidence that", label, "matters.\n")
+  }
+  
+  invisible(list(observed_diff=obs, p_value=pval))
+}
+```
+
+### Run tests for precipitation and visibility variables ###
+
+```{r}
+# Precipitation
+test_precip <- perm_test_two_groups(ua_wx, precip_band, "Measurable", "None/Trace",
+                                    label="Precipitation")
+```
+
+```{r}
+test_vis <- perm_test_two_groups(ua_wx, vis_band, "Low visibility (≤3 mi)", "Higher visibility",
+                                 label="Visibility")
+```
+
