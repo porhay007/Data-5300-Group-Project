@@ -1,0 +1,255 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-10-30"
+---
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+library(infer)
+
+# Quick rebuild of clean data
+ua_clean <- flights %>%
+  filter(carrier == "UA") %>%
+  left_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  filter(!is.na(dep_delay), !is.na(temp), !is.na(wind_speed), 
+         wind_speed < 100) %>%
+  mutate(
+    late = dep_delay > 0,
+    temp_category = case_when(
+      temp <= 32 ~ "Freezing (≤32°F)",
+      temp <= 50 ~ "Cold (33-50°F)",
+      temp <= 70 ~ "Mild (51-70°F)",
+      temp <= 85 ~ "Warm (71-85°F)",
+      TRUE ~ "Hot (>85°F)"
+    )
+  )
+
+cat("Clean data ready:", nrow(ua_clean), "flights\n")
+```
+
+```{r}
+# Much faster 
+ggplot(data = ua_clean, aes(x = temp, y = dep_delay)) +
+  geom_point(alpha = 0.1) +
+  coord_cartesian(ylim = c(0, 100)) +
+  labs(
+    title = "Temperature vs Departure Delay",
+    x = "Temperature (°F)",
+    y = "Departure Delay (minutes)"
+  )
+```
+
+```{r}
+# Remove objects
+rm(ua_data, ua_flights, flights, weather)
+
+# Force R to clean up memory
+gc()
+
+# Check memory usage
+cat("Memory cleared!\n")
+```
+
+```{r}
+# Boxplot
+ggplot(data = ua_clean, aes(x = temp_category, y = dep_delay)) +
+  geom_boxplot() +
+  coord_cartesian(ylim = c(-20, 80)) +
+  labs(
+    title = "Departure Delays by Temperature",
+    x = "Temperature Category",
+    y = "Departure Delay (minutes)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+temp_means <- ua_clean %>%
+  group_by(temp_category) %>%
+  summarise(mean_delay = mean(dep_delay))
+
+ggplot(data = temp_means, aes(x = temp_category, y = mean_delay)) +
+  geom_col(fill = "coral") +
+  labs(
+    title = "Average Delay by Temperature",
+    x = "Temperature Category",
+    y = "Average Delay (minutes)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+ua_clean <- ua_clean %>%
+  mutate(
+    wind_category = case_when(
+      wind_speed <= 5 ~ "Calm (0-5 mph)",
+      wind_speed <= 15 ~ "Light Breeze (6-15 mph)",
+      wind_speed <= 25 ~ "Moderate Wind (16-25 mph)",
+      TRUE ~ "Strong Wind (>25 mph)"
+    )
+  )
+
+# Check it worked
+table(ua_clean$wind_category)
+```
+
+```{r}
+ggplot(data = ua_clean, aes(x = wind_category, y = dep_delay)) +
+  geom_boxplot() +
+  coord_cartesian(ylim = c(-20, 80)) +
+  labs(
+    title = "Departure Delays by Wind Speed",
+    x = "Wind Speed Category",
+    y = "Departure Delay (minutes)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# Calculate means
+wind_means <- ua_clean %>%
+  group_by(wind_category) %>%
+  summarise(mean_delay = mean(dep_delay))
+
+# Bar chart
+ggplot(data = wind_means, aes(x = wind_category, y = mean_delay)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Average Delay by Wind Speed",
+    x = "Wind Speed Category",
+    y = "Average Delay (minutes)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# Temperature correlation
+temp_cor <- cor(ua_clean$temp, ua_clean$dep_delay)
+cat("Temperature correlation:", round(temp_cor, 4), "\n")
+```
+
+```{r}
+# Calculate observed correlation
+observed_temp <- cor(ua_clean$temp, ua_clean$dep_delay)
+cat("Observed correlation:", observed_temp, "\n")
+
+# Number of simulations
+N <- 10^4 - 1
+
+# Sample size
+sample.size <- nrow(ua_clean)
+
+# Vector to store results
+result_temp <- numeric(N)
+
+# For loop
+cat("Running", N, "permutations... please wait\n")
+for(i in 1:N) {
+  # Shuffle departure delays
+  shuffled_delay <- sample(ua_clean$dep_delay)
+  
+  # Calculate correlation with shuffled data
+  result_temp[i] <- cor(ua_clean$temp, shuffled_delay)
+}
+
+cat("Permutations complete!\n")
+
+# Histogram
+ggplot(data = tibble(result_temp), mapping = aes(x = result_temp)) +
+  geom_histogram(bins = 30) +
+  geom_vline(xintercept = observed_temp, color = "red") +
+  labs(
+    title = "Permutation Test: Temperature vs Delay",
+    x = "Correlation (under null hypothesis)",
+    y = "Count"
+  )
+
+# Calculate p-value (two-sided test)
+p_value_temp <- (sum(abs(result_temp) >= abs(observed_temp)) + 1) / (N + 1)
+cat("\nP-value:", p_value_temp, "\n")
+```
+
+```{r}
+# Wind speed correlation
+observed_wind <- cor(ua_clean$wind_speed, ua_clean$dep_delay)
+cat("Observed correlation:", observed_wind, "\n")
+
+# Number of simulations
+N <- 10^4 - 1
+sample.size <- nrow(ua_clean)
+result_wind <- numeric(N)
+
+# For loop
+cat("Running", N, "permutations... please wait\n")
+for(i in 1:N) {
+  shuffled_delay <- sample(ua_clean$dep_delay)
+  result_wind[i] <- cor(ua_clean$wind_speed, shuffled_delay)
+}
+
+cat("Permutations complete!\n")
+
+# Histogram
+ggplot(data = tibble(result_wind), mapping = aes(x = result_wind)) +
+  geom_histogram(bins = 30) +
+  geom_vline(xintercept = observed_wind, color = "red") +
+  labs(
+    title = "Permutation Test: Wind Speed vs Delay",
+    x = "Correlation (under null hypothesis)",
+    y = "Count"
+  )
+
+# P-value
+p_value_wind <- (sum(abs(result_wind) >= abs(observed_wind)) + 1) / (N + 1)
+cat("\nP-value:", p_value_wind, "\n")
+```
+```{r}
+# === TEMPERATURE NUMBERS ===
+cat("=== TEMPERATURE RESULTS ===\n")
+
+# Correlation
+temp_cor <- cor(ua_clean$temp, ua_clean$dep_delay)
+cat("Correlation:", round(temp_cor, 4), "\n\n")
+
+# Mean delays by category
+temp_summary <- ua_clean %>%
+  group_by(temp_category) %>%
+  summarise(mean_delay = round(mean(dep_delay), 2))
+
+print(temp_summary)
+
+# Specific values
+freezing <- temp_summary %>% filter(temp_category == "Freezing (≤32°F)") %>% pull(mean_delay)
+hot <- temp_summary %>% filter(temp_category == "Hot (>85°F)") %>% pull(mean_delay)
+
+cat("\nFreezing mean delay:", freezing, "minutes\n")
+cat("Hot mean delay:", hot, "minutes\n")
+cat("Difference:", round(hot - freezing, 2), "minutes\n")
+cat("P-value:", p_value_temp, "\n")
+```
+
+```{r}
+# === WIND SPEED NUMBERS ===
+cat("\n=== WIND SPEED RESULTS ===\n")
+
+# Correlation
+wind_cor <- cor(ua_clean$wind_speed, ua_clean$dep_delay)
+cat("Correlation:", round(wind_cor, 4), "\n\n")
+
+# Mean delays by category
+wind_summary <- ua_clean %>%
+  group_by(wind_category) %>%
+  summarise(mean_delay = round(mean(dep_delay), 2))
+
+print(wind_summary)
+
+# Specific values
+calm <- wind_summary %>% filter(wind_category == "Calm (0-5 mph)") %>% pull(mean_delay)
+strong <- wind_summary %>% filter(wind_category == "Strong Wind (>25 mph)") %>% pull(mean_delay)
+
+cat("\nCalm mean delay:", calm, "minutes\n")
+cat("Strong wind mean delay:", strong, "minutes\n")
+cat("Difference:", round(strong - calm, 2), "minutes\n")
+cat("P-value:", p_value_wind, "\n")
+```
+
