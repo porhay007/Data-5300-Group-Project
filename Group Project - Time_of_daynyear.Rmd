@@ -1,7 +1,7 @@
 ---
 title: "United Airlines Departure Delays Analysis"
 output: html_document
-
+Author: " PorHay Rouen"
 ---
 # Introduction
 
@@ -12,6 +12,7 @@ library(ggplot2)
 library(dplyr)
 
 ```
+
 # 1, Time of the day
 
 ```{r}
@@ -38,7 +39,18 @@ ua_flights <- ua_flights %>%
     )
   )
 
+# Convert to factor for logical plot ordering
+ua_flights$time_of_day <- factor(ua_flights$time_of_day,
+                                 levels = c("Night (0-5)", "Morning (6-11)",
+                                            "Afternoon (12-17)", "Evening (18-23)"))
+
+
 ```
+
+We selected only United Airlines flights and removed any missing data for departure time or month.
+We created two new indicators: whether a flight was delayed at all, and whether it was very late (more than 60 minutes).
+We also grouped flights into four times of day—Night (0–5), Morning (6–11), Afternoon (12–17), and Evening (18–23)—and ordered them logically for plotting.
+
 
 # Exporatory Data Analysis
 
@@ -81,10 +93,12 @@ mean_plot_df <- summary_tod %>% select(time_of_day, mean_delay, prop_late)
 
 # Mean delay (line)
 ggplot(mean_plot_df, aes(x = time_of_day, y = mean_delay, group = 1)) +
-  geom_line() +
+  geom_line() + geom_point(size = 2, color = "yellow") +
   labs(title = "Average departure delay by time of day", x = "Time of day", y = "Mean delay (minutes)")
 
 ```
+
+
 Average Delay and % Late by Time of Day
 
 Evening flights (18–23) have the highest average delay (~23 min) and 63% depart late. Afternoon flights are moderate (~14.4 min, 53% late), while Morning (6–11) and Night (0–5) flights are the most punctual (~4.7 and ~2.2 min, 33% late). Overall, delays increase through the day, peaking in the evening.
@@ -127,7 +141,7 @@ for (i in 1:n_perm) {
   perm_stats[i] <- perm_data
 }
 
-p_value <- mean(perm_stats >= obs_stat) 
+p_value <- mean(perm_stats >= observed) 
 p_value
 
 ```
@@ -138,13 +152,13 @@ The permutation test shows a statistically significant difference in average dep
 # Visualize permutation distribution
 ggplot(data.frame(perm_stats), aes(x = perm_stats)) +
   geom_histogram(bins = 30, fill = "lightblue", color = "black") +
-  geom_vline(xintercept = obs_stat, color = "red", size = 1.2) +
+  geom_vline(xintercept = observed, color = "red", size = 1.2) +
   labs(
     title = "Permutation Test: Variance of Mean Departure Delays by Time of Day",
     x = "Variance of mean delay (permuted)",
     y = "Frequency"
   ) +
-  annotate("text", x = obs_stat, y = 30, label = paste("Observed =", round(obs_stat, 2)), color = "red", hjust = -0.1)
+  annotate("text", x = observed, y = 30, label = paste("Observed =", round(observed, 2)), color = "red", hjust = -0.1)
 
 ```
 
@@ -153,7 +167,9 @@ Permutation Test Visualization
 The histogram shows the permutation distribution of variance in mean departure delays by time of day. The red line marks the observed variance (≈ 89.39), which is far to the right, indicating it’s much larger than random variation.
 
 
-# Time of the years
+# 2, Time of the years
+
+Create time variable of the year
 
 ```{r}
 # group fight by season
@@ -168,11 +184,109 @@ ua_flights <- ua_flights %>%
     )
   )
 
+# Convert to factor for logical plot ordering
+ua_flights$time_of_year <- factor(ua_flights$time_of_year,
+                                  levels = c("Winter", "Spring", "Summer", "Fall"))
+
 ```
+
+We grouped flights into seasons Winter (Dec–Feb), Spring (Mar–May), Summer (Jun–Aug), and Fall (Sep–Nov) and set their order for clear, natural plotting.
 
 ```{r}
-aw <- ua_flights %>%
-  filter(time_of_year == "Spring")
-aw
+
+# 2. Summarize mean delay and % late by season
+summary_toy <- ua_flights %>%
+  group_by(time_of_year) %>%
+  summarise(
+    mean_delay = mean(dep_delay, na.rm = TRUE),
+    prop_late = mean(late)
+  )
+
+# 3. Line plot of mean delay by season
+ggplot(summary_toy, aes(x = time_of_year, y = mean_delay, group = 1)) +
+  geom_line(color = "blue") +
+  geom_point(size = 2, color = "red") +
+  labs(
+    title = "Average Departure Delay by Time of Year",
+    x = "Season",
+    y = "Mean Departure Delay (minutes)"
+  )
+
+
+```
+The plot highlights the following key points regarding average departure delays:
+
++ Lowest Delay (Fall): The lowest average departure delay occurs in the Fall, at approximately 6.5 minutes.
+
++ Highest Delay (Summer): The highest average departure delay occurs in the Summer, at approximately 17.5 minutes.
+
++ Winter: The average delay in Winter is around 11.5 minutes.
+
++ Spring: The average delay in Spring is slightly higher than in Winter, around 12.5 minutes.
+
+
+
+#### Compute the observed statistic
+
+```{r}
+obs_stat_year <- ua_flights %>%
+  group_by(time_of_year) %>%
+  summarise(mean_delay = mean(dep_delay, na.rm = TRUE)) %>%
+  summarise(var_mean_delay = var(mean_delay)) %>%
+  pull(var_mean_delay)
+
+obs_stat_year
+
 ```
 
+We calculated the differences in average departure delays between seasons. The observed value measures how much the seasonal averages vary from each other.
+
+
+#### Run the permutation test
+```{r}
+set.seed(123)
+
+n_perm <- 1000
+perm_stats_year <- numeric(n_perm)
+
+for (i in 1:n_perm) {
+  
+  perm_data <- ua_flights %>%
+    mutate(time_of_year = sample(time_of_year)) %>%
+    group_by(time_of_year) %>%
+    summarise(mean_delay = mean(dep_delay, na.rm = TRUE)) %>%
+    summarise(var_mean_delay = var(mean_delay)) %>%
+    pull(var_mean_delay)
+  
+  perm_stats_year[i] <- perm_data
+}
+
+p_value_year <- mean(perm_stats_year >= obs_stat_year)
+p_value_year
+```
+
+We used a permutation test to check if the differences in average departure delays between seasons could happen by chance.
+We randomly shuffled the seasons 1,000 times and calculated the differences each time.
+The observed difference was much larger than anything we got from random shuffling (p ≈ 0).
+This tells us that the time of year has a real, significant effect on departure delays.
+
+
+# Visualzation the permutation 
+```{r}
+
+ggplot(data.frame(perm_stats_year), aes(x = perm_stats_year)) +
+  geom_histogram(bins = 30, fill = "lightgreen", color = "black") +
+  geom_vline(xintercept = obs_stat_year, color = "red", size = 1.2) +
+  labs(
+    title = "Permutation Test: Variance of Mean Departure Delays by Time of Year",
+    x = "Variance of mean delay (permuted)",
+    y = "Frequency"
+  ) +
+  annotate(
+    "text", x = obs_stat_year, y = 30,
+    label = paste("Observed =", round(obs_stat_year, 2)),
+    color = "red", hjust = -0.1
+  )
+
+```
+A histogram of the shuffled results shows that the observed difference (red line) is far outside the range expected by chance, confirming the seasonal effect.
