@@ -4,16 +4,16 @@ output: html_document
 Author: " PorHay Rouen"
 ---
 # Introduction
+##### loading package
 
 ```{r}
-# Require package
 library(nycflights13)
 library(ggplot2)
 library(dplyr)
 
 ```
 
-#check data
+##### check few data
 ```{r}
 head(flights)
 ```
@@ -21,9 +21,9 @@ head(flights)
 
 # 1, Time of the day
 
-```{r}
-# Filter United Airlines flights and remove missing values
+#####  Filter United Airlines flights and remove missing values
 
+```{r}
 ua_flights <- flights %>%
   filter(carrier == "UA") %>%
   filter(!is.na(dep_delay), !is.na(hour), !is.na(month)) %>%
@@ -58,7 +58,7 @@ We created two new indicators: whether a flight was delayed at all, and whether 
 We also grouped flights into four times of day—Night (0–5), Morning (6–11), Afternoon (12–17), and Evening (18–23)—and ordered them logically for plotting.
 
 
-# Exporatory Data Analysis
+# Exploratory Data Analysis
 
 ```{r}
 
@@ -80,12 +80,12 @@ Time of Day — Departure Delays
 
 Morning and Night flights had the lowest average delays (~2–5 minutes) and about 33% departed late. Afternoon flights averaged ~14 minutes delay (53% late), while Evening flights were the worst, averaging ~23 minutes delay with 63% departing late. Overall, delays increase as the day progresses.
 
-
+##### Boxplot : delays by time of day
 ```{r}
-# Boxplot : delays by time of day
+
 ggplot(ua_flights, aes(x = time_of_day, y = dep_delay)) +
   geom_boxplot(outlier.size = 0.6) +
-  coord_cartesian(ylim = c(-20, 200)) + # optional clamp so plot is readable (adjust if needed)
+  coord_cartesian(ylim = c(-20, 200)) +
   labs(title = "United Airlines — Departure delay by time of day",
        x = "Time of day",
        y = "Departure delay (minutes)")
@@ -99,10 +99,16 @@ The boxplot shows that most United Airlines flights depart close to their schedu
 # Mean delay + percent late
 mean_plot_df <- summary_tod %>% select(time_of_day, mean_delay, prop_late)
 
-# Mean delay (line)
-ggplot(mean_plot_df, aes(x = time_of_day, y = mean_delay, group = 1)) +
-  geom_line() + geom_point(size = 2, color = "yellow") +
-  labs(title = "Average departure delay by time of day", x = "Time of day", y = "Mean delay (minutes)")
+# Bar chart
+ggplot(mean_plot_df, aes(x = time_of_day, y = mean_delay, fill = time_of_day)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Average Departure Delay by Time of Day",
+    x = "Time of Day",
+    y = "Mean Delay (minutes)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") 
 
 ```
 
@@ -113,65 +119,63 @@ Evening flights (18–23) have the highest average delay (~23 min) and 63% depar
 
 # Permutation Test
 
+Compare Night and Evening flight
+
 ```{r}
-# Compute the observed statistic
-# Observed difference among time-of-day groups
-observed <- ua_flights %>%
-  group_by(time_of_day) %>%
-  summarise(mean_delay = mean(dep_delay)) %>%
-  summarise(var_mean_delay = var(mean_delay)) %>%
-  pull(var_mean_delay)
+
+ua_filter <- ua_flights %>%
+  filter(time_of_day %in% c("Night (0-5)", "Evening (18-23)")) %>%
+  filter(!is.na(dep_delay))
+
+observed <- mean(ua_filter$late[ua_filter$time_of_day == "Evening (18-23)" ]) -
+  mean(ua_filter$late[ua_filter$time_of_day == "Night (0-5)" ]) 
 
 observed
 
-```
-
-We performed a permutation test to see if the differences in average departure delays across times of day could happen by chance. The observed variance of mean delays was 89.39, which is much higher than expected under random shuffling of flight times. This indicates that the time of day has a significant effect on departure delays.
-
-
-```{r}
 #Perform permutation test
 
 set.seed(123)  # for reproducibility
 
-n_perm <- 1000  # number of permutations
-perm_stats <- numeric(n_perm)
+N <- 10000  # number of permutations
+sample.size <- nrow(ua_filter)
+group.1.size <- nrow(ua_filter[ua_filter$time_of_day == "Evening (18-23)",])
 
-for (i in 1:n_perm) {
-  perm_data <- ua_flights %>%
-    mutate(time_of_day = sample(time_of_day)) %>%  # shuffle labels
-    group_by(time_of_day) %>%
-    summarise(mean_delay = mean(dep_delay)) %>%
-    summarise(var_mean_delay = var(mean_delay)) %>%
-    pull(var_mean_delay)
-  
-  perm_stats[i] <- perm_data
-}
+result <- numeric(N)
 
-p_value <- mean(perm_stats >= observed) 
+for (i in 1:N) {
+  index <- sample(sample.size, size = group.1.size, replace = FALSE)
+  result[i] <- mean(ua_filter$late[index]) - mean(ua_filter$late[-index])
+  }
+
+p_value <- 2*(sum(result >= observed) +1)/(N +1)
 p_value
 
 ```
 
-The permutation test shows a statistically significant difference in average departure delays among times of day for United Airlines flights (p < 0.05). This suggests that the time of day has a strong effect on departure delay patterns.
+We compared flights that depart in the evening (6PM–11PM) with flights that depart at night (12AM–5AM). The analysis shows that evening flights are about 30% more likely to be delayed than night flights. after permutation test, we found that this difference is very unlikely to occur by random chance. This means that evening flights generally experience more delays than night flights.
 
 ```{r}
-# Visualize permutation distribution
-ggplot(data.frame(perm_stats), aes(x = perm_stats)) +
-  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+perm_df <- data.frame(diff = result)
+
+ggplot(perm_df, aes(x = diff)) +
+  geom_histogram(binwidth = 0.01, fill = "orange", color = "black") +
   geom_vline(xintercept = observed, color = "red", size = 1.2) +
   labs(
-    title = "Permutation Test: Variance of Mean Departure Delays by Time of Day",
-    x = "Variance of mean delay (permuted)",
+    title = "Permutation Test: Difference in Late Probability (Evening - Night)",
+    x = "Difference in Probability",
     y = "Frequency"
   ) +
-  annotate("text", x = observed, y = 30, label = paste("Observed =", round(observed, 2)), color = "red", hjust = -0.1)
+  theme_minimal()
 
 ```
 
 Permutation Test Visualization
 
-The histogram shows the permutation distribution of variance in mean departure delays by time of day. The red line marks the observed variance (≈ 89.39), which is far to the right, indicating it’s much larger than random variation.
+The histogram shows the distribution of differences you would expect if there were no real difference between Evening and Night flights.
+
+The red line marks the actual observed difference (0.2973).
+
+Since the observed difference is far from most of the permutation differences, it visually confirms that Evening flights are more likely to be late.
 
 
 # 2, Time of the years
@@ -191,34 +195,39 @@ ua_flights <- ua_flights %>%
     )
   )
 
-# Convert to factor for logical plot ordering
-ua_flights$time_of_year <- factor(ua_flights$time_of_year,
-                                  levels = c("Winter", "Spring", "Summer", "Fall"))
-
 ```
 
 We grouped flights into seasons Winter (Dec–Feb), Spring (Mar–May), Summer (Jun–Aug), and Fall (Sep–Nov) and set their order for clear, natural plotting.
-
 ```{r}
 
-# 2. Summarize mean delay and % late by season
-summary_toy <- ua_flights %>%
+# find mean
+mean_df <- ua_flights %>%
   group_by(time_of_year) %>%
   summarise(
-    mean_delay = mean(dep_delay, na.rm = TRUE),
-    prop_late = mean(late)
+    n = n(),
+    mean_delay = mean(dep_delay),
+    med_delay = median(dep_delay),
+    sd_delay = sd(dep_delay),
+    prop_late = mean(late),
+    prop_very_late = mean(very_late)
   )
+print(mean_df)
 
-# 3. Line plot of mean delay by season
-ggplot(summary_toy, aes(x = time_of_year, y = mean_delay, group = 1)) +
-  geom_line(color = "blue") +
-  geom_point(size = 2, color = "red") +
+
+```
+
+```{r}
+# Bar plot of mean delay by season
+ 
+
+ggplot(mean_df, aes(x = time_of_year, y = mean_delay, fill = time_of_year)) +
+  geom_col() +
   labs(
     title = "Average Departure Delay by Time of Year",
     x = "Season",
     y = "Mean Departure Delay (minutes)"
-  )
-
+  ) +
+  theme_minimal()
 
 ```
 The plot highlights the following key points regarding average departure delays:
@@ -234,66 +243,53 @@ The plot highlights the following key points regarding average departure delays:
 
 
 #### Compute the observed statistic
-
+We compare between (summer and fall)
 ```{r}
-obs_stat_year <- ua_flights %>%
-  group_by(time_of_year) %>%
-  summarise(mean_delay = mean(dep_delay, na.rm = TRUE)) %>%
-  summarise(var_mean_delay = var(mean_delay)) %>%
-  pull(var_mean_delay)
+ua_filter <- ua_flights %>%
+  filter(time_of_year %in% c("Summer", "Fall")) %>%
+  filter(!is.na(dep_delay))
 
-obs_stat_year
+observed_year <- mean(ua_filter$late[ua_filter$time_of_year == "Summer" ]) -
+  mean(ua_filter$late[ua_filter$time_of_year == "Fall" ]) 
+
+observed_year
+
+
+#Perform permutation test
+
+set.seed(123)  # for reproducibility
+
+N <- 10000  # number of permutations
+sample.size <- nrow(ua_filter)
+group.1.size <- nrow(ua_filter[ua_filter$time_of_year == "Summer",])
+
+result <- numeric(N)
+
+for (i in 1:N) {
+  index <- sample(sample.size, size = group.1.size, replace = FALSE)
+  result[i] <- mean(ua_filter$late[index]) - mean(ua_filter$late[-index])
+  }
+
+p_value <- 2*(sum(result >= observed_year) +1)/(N +1)
+p_value
 
 ```
 
-We calculated the differences in average departure delays between seasons. The observed value measures how much the seasonal averages vary from each other.
+The observed difference between summer and fall flights is 0.173, meaning that summer flights are about 17% more likely to be late than fall flights. The permutation test gives a very small p-value (0.0002), suggesting that this difference is unlikely to have occurred by chance. In other words, summer flights tend to experience significantly more delays than fall flights.
 
 
-#### Run the permutation test
 ```{r}
-set.seed(123)
+perm_df <- data.frame(diff = result)
 
-n_perm <- 1000
-perm_stats_year <- numeric(n_perm)
-
-for (i in 1:n_perm) {
-  
-  perm_data <- ua_flights %>%
-    mutate(time_of_year = sample(time_of_year)) %>%
-    group_by(time_of_year) %>%
-    summarise(mean_delay = mean(dep_delay, na.rm = TRUE)) %>%
-    summarise(var_mean_delay = var(mean_delay)) %>%
-    pull(var_mean_delay)
-  
-  perm_stats_year[i] <- perm_data
-}
-
-p_value_year <- mean(perm_stats_year >= obs_stat_year)
-p_value_year
-```
-
-We used a permutation test to check if the differences in average departure delays between seasons could happen by chance.
-We randomly shuffled the seasons 1,000 times and calculated the differences each time.
-The observed difference was much larger than anything we got from random shuffling (p ≈ 0).
-This tells us that the time of year has a real, significant effect on departure delays.
-
-
-# Visualzation the permutation 
-```{r}
-
-ggplot(data.frame(perm_stats_year), aes(x = perm_stats_year)) +
-  geom_histogram(bins = 30, fill = "lightgreen", color = "black") +
-  geom_vline(xintercept = obs_stat_year, color = "red", size = 1.2) +
+ggplot(perm_df, aes(x = diff)) +
+  geom_histogram(binwidth = 0.01, fill = "Green", color = "black") +
+  geom_vline(xintercept = observed, color = "red", size = 1.2) +
   labs(
-    title = "Permutation Test: Variance of Mean Departure Delays by Time of Year",
-    x = "Variance of mean delay (permuted)",
+    title = "Permutation Test: Difference in Late Probability (Summer - Fall)",
+    x = "Difference in Probability",
     y = "Frequency"
   ) +
-  annotate(
-    "text", x = obs_stat_year, y = 30,
-    label = paste("Observed =", round(obs_stat_year, 2)),
-    color = "red", hjust = -0.1
-  )
+  theme_minimal()
 
 ```
-A histogram of the shuffled results shows that the observed difference (red line) is far outside the range expected by chance, confirming the seasonal effect.
+This plot shows the results of our permutation test comparing late flights between summer and fall. The green bars represent the differences we would expect by random chance, and the red line shows the actual observed difference (0.173). Since the red line is far from most of the green bars, it suggests that summer flights are significantly more likely to be late than fall flights.
